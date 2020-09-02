@@ -84,4 +84,4 @@ def animate_lst(to_plot_list, filename):
 
 temperature_time_mes_ed = list_for_animation(temperature_time_mes)
 
-animate_lst(temperature_time_mes_ed, 'AnimatedPlot.mp4')
+animate_lst(temperature_time_mes_ed, 'Control_animation.mp4')
