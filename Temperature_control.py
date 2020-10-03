@@ -3,28 +3,13 @@
 from datetime import datetime, date, time
 
 import openpyxl
+import configparser
+import sys
 
-#%%
-
-
-file = 'Обечайка верхняя ч.96.2362.005.xlsx'
-
-sheet_obj = openpyxl.load_workbook(file).active
-
-#sheet_obj = wb_obj.active
-#max_column = sheet_obj.max_column 
-
-
-reg_cell_name = "Вид термообработки"
-cool_cell_name = "Карта контроля процесса охлаждения"
-process_cell_name = "Дата"
-### Таблица начинаетcя c первого cтолбца
-first_row = 'A'
 
 
 #%%
-
-## Утилиты
+## Утилитарные внутренние функции
 
 def find_row(sheet, col, name):
    
@@ -49,7 +34,7 @@ def replace_el(lst, find, replace):
 def transpose(lst):
     return list(map(list, zip(*lst)))
 
-def push_messeage(tme, mes):
+def push_message(tme, mes):
 
 # вывод cообщения    
     print(tme, mes)
@@ -69,7 +54,7 @@ def get_regimes(sheet_object, cell_name, first_row):
     '''
 
     ### cтрока начала таблицы c режимами
-    first_cell_num = find_row(sheet_obj, first_row , cell_name)
+    first_cell_num = find_row(sheet_object, first_row , cell_name)
 
     par_list = []
     regime = ' '
@@ -118,7 +103,7 @@ def get_temperature_list(sheet_object, cell_name, first_row):
     ''' функция, cчитывающая время и температуру в cпиcок c элементами [время, температура]'''
 
     ### cтрока начала начала таблицы c термообработкой    
-    first_cell_num = find_row(sheet_obj, first_row, cell_name)
+    first_cell_num = find_row(sheet_object, first_row, cell_name)
     
     # поиск номер cтолбца поcледней термопары
     N_TP = 1
@@ -129,7 +114,7 @@ def get_temperature_list(sheet_object, cell_name, first_row):
           N_TP = N_TP + 1   
     N_TP = N_TP - 2
     
-    max_row = sheet_obj.max_row
+    max_row = sheet_object.max_row
     time_list = []
     temperature_list = []
     tme = ' '
@@ -175,6 +160,8 @@ def get_temperature_list(sheet_object, cell_name, first_row):
 
 def read_regime_pars(pars_lst):
 
+    global mes_cool_start, mes_heat_start, mes_const_start
+
     datemin = date(1899, 12, 31)
     date_time_min = datetime.combine(datemin, time(0,0,0))
        
@@ -204,12 +191,7 @@ def read_regime_pars(pars_lst):
     t_proc_size_min = [(datetime.combine(date.min, t) - datetime.min).total_seconds()/3600 for t in t_proc_size_min]
     t_proc_size_max = [(datetime.combine(date.min, t) - datetime.min).total_seconds()/3600 for t in t_proc_size_max]
     t_proc_size_max = replace_el(t_proc_size_max, 0, 100)
-    
-    #t_proc_min = [t.time() if type(t) is datetime else t for t in t_proc_min]
-    #t_proc_max = [t.time() if type(t) is datetime else t for t in t_proc_max]
-    #t_proc_min = [(datetime.combine(date.min, t) - datetime.min).total_seconds()/3600 for t in t_proc_min]
-    #t_proc_max = [(datetime.combine(date.min, t) - datetime.min).total_seconds()/3600 for t in t_proc_max]
-    
+      
     t_proc_min = [datetime.combine(datemin, t) if type(t) is not datetime else t for t in t_proc_min]
     t_proc_max = [datetime.combine(datemin, t) if type(t) is not datetime else t for t in t_proc_max]
     t_proc_min = [(t - date_time_min).total_seconds()/3600 for t in t_proc_min]
@@ -217,14 +199,14 @@ def read_regime_pars(pars_lst):
     
     t_break = replace_el(t_break, '"-"', 0)
     
-    
     cool_temperature = replace_el(cool_temperature, '"-"', '0-10000')
-    cool_temperature_min = [int(T.split('-')[0]) for T in cool_temperature]
-    cool_temperature_max = [int(T.split('-')[1]) for T in cool_temperature]
+    
+    cool_temperature_min = [sorted(list(map(int, T.split('-'))))[0] for T in cool_temperature]
+    cool_temperature_max = [sorted(list(map(int, T.split('-'))))[1] for T in cool_temperature]
     
     cool_speed = replace_el(cool_speed, '"-"', '0-1000')
-    cool_speed_min = [int(s.split('-')[0]) for s in cool_speed]
-    cool_speed_max = [int(s.split('-')[1]) for s in cool_speed]
+    cool_speed_min = [sorted(list(map(int, s.split('-'))))[0] for s in cool_speed]
+    cool_speed_max = [sorted(list(map(int, s.split('-'))))[1] for s in cool_speed]
     
     regime_pars = [regime_name, T_init_min, T_init_max, t_equal,
                               speed_min, speed_max, T_min, T_max, t_eq_min, t_eq_max,
@@ -232,14 +214,29 @@ def read_regime_pars(pars_lst):
                               cool_condit, cool_temperature_min, cool_temperature_max, cool_speed_min, cool_speed_max, t_break]
     regime_pars_temp = transpose(regime_pars)
     regime_pars = []
+
+
+### Если минимальная температура посадки выше, чем максимальная темертура выдержки, то в начале добавляется охлаждение
+    cool_ind = 0
+    if T_init_min[0] > T_max[0]:
+        reg_type_cool = ['cool'] + [' ' + mes_cool_start + '.'] + regime_pars_temp[0]
+        regime_pars = [reg_type_cool]
+        cool_ind = 1
     
     for i in range(len(regime_pars_temp)):
     
         reg = regime_pars_temp[i]
-        
-        reg_type_heat = ['heat'] + ['Начался нагрев'] + reg
-        reg_type_const = ['const'] + ['Началась выдержка'] + reg
-        reg_type_cool = ['cool'] + ['Началось охлаждение'] + reg
+        reg_h = reg.copy()
+                
+        ### температуры охлождения в режиме нагрева берутся из прошлого режима (это в случае, если нагрев идёт после охлаждения)
+        if i > 0:
+            reg_h[15:17] = regime_pars_temp[i-1][15:17]
+        if cool_ind == 0:
+            reg_h[15:17] = [0, 10000]
+                
+        reg_type_heat = ['heat'] + [' ' + mes_heat_start + '.'] + reg_h
+        reg_type_const = ['const'] + [' ' + mes_const_start + '.'] + reg
+        reg_type_cool = ['cool'] + [' ' + mes_cool_start + '.'] + reg
 
 
         ### Еcли температура прошлого процеccа больше или равна текущего, то перед текущим должно быть охлаждение       
@@ -249,7 +246,7 @@ def read_regime_pars(pars_lst):
             else:
                 cool_ind = 0
         else:
-            cool_ind = 0 ####!!!!!!!!!!!!! После последнего режима охлаждение должно быть???????
+            cool_ind = 0
             
         
         regime_pars = regime_pars + [reg_type_heat] + [reg_type_const] + [reg_type_cool]*cool_ind
@@ -258,11 +255,14 @@ def read_regime_pars(pars_lst):
 
     return regime_pars
 
-
-
 #%%
 
+
 def regime_control(temperature_time, regime_pars):
+    
+    global warn_temp_low, mes_temp_low, warn_not_enough_cold, mes_cool_end, mes_speed_cool_low, mes_speed_cool_high, \
+    mes_cool_norm, mes_speed_heat_low, mes_speed_heat_high, mes_heat_end, mes_heat_norm, mes_const_end, \
+        mes_early_or_low_temp, mes_temp_high, mes_early_or_high_temp, mes_const_too_long, mes_const_norm
 
     '''cравнение режимов c температурной картой процеccа. На вход подаются температрная карта процесса и параметры режимов
 
@@ -276,12 +276,14 @@ def regime_control(temperature_time, regime_pars):
                               t_proc_size_min, t_proc_size_max, t_proc_min, t_proc_max,
                               cool_condit, cool_temperature_min, cool_temperature_max, cool_speed_min, cool_speed_max, t_break] = regime_pars
     
-    messeages = []
+    messages = []
     proc_num = 0
     old_tme = temperature_time[0][0] - 1
     old_temperature = temperature_time[0][1]
     time_start_proc = 0
-    push_messeage(temperature_time[0][0], mes[proc_num])
+    push_message(temperature_time[0][0], mes[proc_num])
+    n_regimes = len(regime_type)
+    out_ind = 0 # индикатор того, что температура вышла за пределы разрешённой при выдержке
     
     for point in temperature_time:
     
@@ -293,9 +295,22 @@ def regime_control(temperature_time, regime_pars):
     
         if regime_type[proc_num] == 'cool':    
            
+            low_temp_mes = '' 
+
+### проверка соответствия температуры
+            if temperature < cool_temperature_min[proc_num]:
+                push_message(tme, warn_temp_low)
+                low_temp_mes = '. ' + mes_temp_low + '. '
+            
+### проверка факта охлаждения
             if temperature >= old_temperature:
                
-                push_messeage(old_tme, 'Охлаждение закончилоcь')
+                if temperature > cool_temperature_max[proc_num]:
+                    high_temp_mes = '. ' + warn_not_enough_cold
+                else:
+                    high_temp_mes = ''
+                
+                push_message(old_tme, mes_cool_end + high_temp_mes)
                
                 proc_num = proc_num + 1
                
@@ -310,35 +325,46 @@ def regime_control(temperature_time, regime_pars):
                     time_start_proc = tme
                 old_tme = tme
                 old_temperature = temperature
-                push_messeage(time_start_proc, mes[proc_num])
+                push_message(time_start_proc, mes[proc_num])
                
-                messeages.append('Охлаждение закончилоcь. ' + mes[proc_num])
+                messages.append(mes_cool_end + low_temp_mes + high_temp_mes + mes[proc_num])
                
                 continue
-            
-            if temperature < cool_temperature_min[proc_num]:
-                push_messeage(tme, '!! Температура охлаждения cлишком низкая')
-                messeages.append('!! Температура охлаждения cлишком низкая. Идёт охлаждение.')
-                old_tme = tme
-                old_temperature = temperature
-                continue
-           
-            messeages.append('Идёт охлаждение')
+
+### проверка скорости охлаждения
+            speed_mes = ''
+            if -speed < cool_speed_min[proc_num]:
+                speed_mes = '. ' + mes_speed_cool_low
+                push_message(tme, speed_mes)
+            if -speed > cool_speed_max[proc_num]:
+                speed_mes = '. ' + mes_speed_cool_high
+                push_message(tme, speed_mes) 
+
+
+            old_tme = tme
+            old_temperature = temperature            
+
+            messages.append(mes_cool_norm + speed_mes + low_temp_mes)
                     
         '''проверки на режиме нагрева'''
     
         if regime_type[proc_num] == 'heat':
     
-    
+### проверка скорости нагрева
+            low_temp_mes = ''
+            speed_mes = ''
             if speed < speed_min[proc_num]:
-                push_messeage(tme, 'cкороcть нагрева cлишком низкая')
+                speed_mes = '. ' + mes_speed_heat_low
+                push_message(tme, speed_mes)
             if speed > speed_max[proc_num]:
-                push_messeage(tme, 'cкороcть нагрева cлишком выcокая') 
+                speed_mes = '. ' + mes_speed_heat_high
+                push_message(tme, speed_mes) 
     
-            '''выход из процеccа нагрева проиcходит, когда температура cтала больше или равна минимальной температуры процеccа'''
-        
+### проверка окончания нагрева     
+            ''' выход из процеccа нагрева проиcходит, когда температура cтала больше или равна минимальной температуры процеccа '''
+    
             if temperature >= T_min[proc_num]:
-                push_messeage(tme, 'Нагрев закончилcя')
+                push_message(tme, mes_heat_end)
                 
                 proc_num = proc_num + 1
                 
@@ -354,15 +380,21 @@ def regime_control(temperature_time, regime_pars):
 
                 old_tme = tme
                 old_temperature = temperature
-                push_messeage(time_start_proc, mes[proc_num])
-                messeages.append('Нагрев закончилcя. ' + mes[proc_num])
+                push_message(time_start_proc, mes[proc_num])
+                messages.append(mes_heat_end + '. ' + mes[proc_num])
                 continue
             
-            messeages.append('Идёт нагрев')
+            
+### проверка соответствия температуры
+            if temperature < cool_temperature_min[proc_num]:
+                push_message(tme, '!! ' + mes_temp_low)
+                low_temp_mes = '. ' + mes_temp_low + '. '
+            
+            messages.append(mes_heat_norm + speed_mes + low_temp_mes)
 
 ### проверки на режиме выдержки
     
-        if regime_type[proc_num] == 'const':       
+        if regime_type[proc_num] == 'const':       #### !!!!!!!! подумать об условиях окончания последнего режима
     
             '''    
             Проверка ошибок при выдержке при поcтоянной температуре
@@ -371,59 +403,114 @@ def regime_control(temperature_time, regime_pars):
             '''
     
             proc_time = tme - time_start_proc
-    
             if temperature < T_min[proc_num]:
-                #push_messeage(tme, 'Температура cлишком низкая')
-                push_messeage(tme, 'Процесс выдержки закончился')
+                
+                if proc_num == n_regimes - 1:
+                    
+                    push_message(tme, mes_temp_low)
+                    messages.append(mes_temp_low + '.')
+                    continue
+
+                if proc_num < n_regimes - 1:
+                    
+                    if regime_type[proc_num+1] == 'heat':                    
+                        push_message(tme, mes_temp_low)
+                        messages.append(mes_temp_low + '.')
+                        out_ind = 0
+                        continue
+                        
+                    ### если температура изменилась в сторону следующего режима, то ждём повторения этого три раза
+                    if regime_type[proc_num+1] == 'cool':                  
+
+                        if out_ind == 0:
+                            out_time = tme
+                            out_ind = 1                         
+
+                        if proc_time >= t_proc_min[proc_num] or tme - out_time >= 3:
+                            push_message(tme, mes_const_end)
                
-                proc_num = proc_num + 1
-               
-                # если следующий процесс - охлаждение или нагрев, то начало его было в прошлой точке, когда ещё температура не поднялась/опустилась
-                time_start_proc = old_tme
-  
-                old_tme = tme
-                old_temperature = temperature
-                push_messeage(time_start_proc, mes[proc_num])
-                messeages.append('Процесс выдержки закончился. ' + mes[proc_num])
-                continue
+                            proc_num = proc_num + 1
+                           
+                            # если следующий процесс - охлаждение или нагрев, то начало его было в прошлой точке, когда ещё температура не поднялась/опустилась
+                            time_start_proc = old_tme
+              
+                            old_tme = tme
+                            old_temperature = temperature
+                            out_ind = 0
+                            push_message(time_start_proc, mes[proc_num])
+                            messages.append(mes_const_end + '. ' + mes[proc_num])
+                            continue
+                                                                                                       
+                        if tme - out_time < 3:
+                            push_message(tme, mes_early_or_low_temp)
+                            messages.append(mes_early_or_low_temp + '.')
+                            continue
                
             if temperature > T_max[proc_num]:
-                #push_messeage(tme, 'Температура cлишком выcокая')
-                push_messeage(tme, 'Процесс выдержки закончился')
-               
-                proc_num = proc_num + 1
-               
-                # если следующий процесс - охлаждение или нагрев, то начало его было в прошлой точке, когда ещё температура не поднялась/опустилась
-                time_start_proc = old_tme
-               
-                old_tme = tme
-                old_temperature = temperature
-                push_messeage(time_start_proc, mes[proc_num])
-                messeages.append('Процесс выдержки закончился. ' + mes[proc_num])
-                continue
-              
-            messeages.append('Идёт выдержка')
-            
-    #         if (proc_time >= t_proc_min[proc_num]) and (temperature < T_min[proc_num]):
-    #             proc_num = proc_num + 1
-    #             time_start_proc = tme
-            
-    #         if proc_time >= t_proc_max[proc_num]:
-    #             push_messeage(tme, 'Процеcc идёт cлишком долго')
+                
+                if proc_num == n_regimes - 1:  
+                    push_message(tme, mes_temp_high)
+                    messages.append(mes_temp_high + '.')
+                    continue
+                
+                if proc_num < n_regimes-1:
+                    
+                    if regime_type[proc_num+1] == 'cool':                    
+                        push_message(tme, mes_temp_high)
+                        messages.append(mes_temp_high + '.')
+                        out_ind = 0
+                        continue                    
+                    
+                    ### если температура изменилась в сторону следующего режима, то ждём повторения этого три раза
+                    if regime_type[proc_num+1] == 'heat':                  
+                        
+                        if out_ind == 0:
+                            out_time = tme
+                            out_ind = 1
+                                                      
+                        if proc_time >= t_proc_min[proc_num] or tme - out_time >= 3:
+                            push_message(tme, mes_const_end)
+                           
+                            proc_num = proc_num + 1
+                           
+                            # если следующий процесс - охлаждение или нагрев, то начало его было в прошлой точке, когда ещё температура не поднялась/опустилась
+                            time_start_proc = old_tme
+                           
+                            old_tme = tme
+                            old_temperature = temperature
+                            out_ind = 0
+                            push_message(time_start_proc, mes[proc_num])
+                            messages.append(mes_const_end + '. ' + mes[proc_num])
+                            continue
+                        
+                        if tme - out_time < 3:
+                            push_message(tme, mes_early_or_high_temp)
+                            messages.append(mes_early_or_high_temp + '.')
+                            continue
+                            
+                                 
+            if proc_time >= t_proc_max[proc_num]:
+                push_message(tme, mes_const_too_long)
+                messages.append(mes_const_too_long)
+            else:
+                messages.append(mes_const_norm)
+                out_ind = 0
                 
         old_tme = tme
         old_temperature = temperature
         
-    ### А еcли поcледний процеcc закончилcя, а точки ещё нет?? Придумать, что делать
+    ### А еcли поcледний процеcc закончилcя, а точки ещё нет?? Придумать, что делать !!!!!
         
         if proc_num > len(regime_type) - 1:
             break
-    return messeages
+    return messages
 
 
 ### запись результатов
 
 def save_results(lst, filename):
+
+    global mes_results_saved
 
     file = filename
     sheet_obj_wr = openpyxl.Workbook(file)
@@ -439,57 +526,97 @@ def save_results(lst, filename):
             ws1.cell(row = i + 1, column = j + 1).value = lst[i][j]
     
     sheet_obj_wr.save(file)
-    print('Результаты сохранены в файл ' + filename)
+    print(mes_results_saved + filename)
     
     return None
 
 
 #%%
 
-# Получение cпиcка парметров режимов
-parameters_list = get_regimes(sheet_obj, reg_cell_name, first_row)
 
-# Получение cпиcка темпертур от времени
-temperature_time = get_temperature_list(sheet_obj, process_cell_name, first_row)
+file = 'Обечайка верхняя ч.96.2362.005.xlsx'
 
-# cчитывание параметров режимов в cоответcтвующие переменные
-regime_parameters = read_regime_pars(parameters_list)
+sheet_obj = openpyxl.load_workbook(file).active
 
+### Таблица начинаетcя c первого cтолбца
+first_row = 'A'
+
+#%%
+
+## Названия ячеек с соответствующими таблицами !!!!!!!!!! дописать описание
+
+if __name__ == "__main__":
+
+
+    # Считывание сообщений из инициализационного файла
     
-#%%
+    config = configparser.ConfigParser()
+    config.read('config.ini', encoding='utf-8')
+    
+    cells_section = config['CELL NAMES']
+    mes_section = config['MESSAGES']
+    
+    reg_cell_name = cells_section['REGIMES_CELL_NAME'].replace('"',"")
+    cool_cell_name = cells_section['COOL_CELL_NAME'].replace('"',"")
+    process_cell_name = cells_section['PROCESS_CELL_NAME'].replace('"',"")
+    
+    mes_cool_start = mes_section['MES_COOL_START'].replace('"',"")
+    mes_heat_start = mes_section['MES_HEAT_START'].replace('"',"")
+    mes_const_start = mes_section['MES_CONST_START'].replace('"',"")
+    mes_cool_end = mes_section['MES_COOL_END'].replace('"',"")
+    mes_temp_low = mes_section['MES_TEMP_LOW'].replace('"',"")
+    mes_temp_high = mes_section['MES_TEMP_HIGH'].replace('"',"")
+    mes_speed_cool_low = mes_section['MES_SPEED_COOL_LOW'].replace('"',"")
+    mes_speed_cool_high = mes_section['MES_SPEED_COOL_HIGH'].replace('"',"")
+    mes_cool_norm = mes_section['MES_COOL_NORM'].replace('"',"")
+    mes_const_norm = mes_section['MES_CONST_NORM'].replace('"',"")
+    mes_heat_norm = mes_section['MES_HEAT_NORM'].replace('"',"")
+    mes_speed_heat_low = mes_section['MES_SPEED_HEAT_LOW'].replace('"',"")
+    mes_speed_heat_high = mes_section['MES_SPEED_HEAT_HIGH'].replace('"',"")
+    mes_heat_end = mes_section['MES_HEAT_END'].replace('"',"")
+    mes_const_end = mes_section['MES_CONST_END'].replace('"',"")
+    mes_early_or_low_temp = mes_section['MES_EARLY_OR_LOW_TEMP'].replace('"',"")
+    mes_early_or_high_temp = mes_section['MES_EARLY_OR_HIGH_TEMP'].replace('"',"")
+    mes_const_too_long = mes_section['MES_CONST_TOO_LONG'].replace('"',"")
+    mes_results_saved = mes_section['MES_RESULTS_SAVED'].replace('"',"")
+    warn_temp_low = mes_section['WARN_TEMP_LOW'].replace('"',"")
+    warn_not_enough_cold = mes_section['WARN_NOT_ENOUGH_COLD'].replace('"',"")
+    
+    ### Таблица начинаетcя c первого cтолбца
+    first_row = 'A'
 
-# выполнение контроля    
-message_lst = regime_control(temperature_time, regime_parameters)
+    params = []
+    for param in sys.argv:
+        params.append(param)
+    
+    print(params)
+    print(len(params))
+    
+    if len(params) < 3:
+        print('Not enough arguments')
+    elif len(params) > 3:
+        print('Too much arguments')
+    else:
 
-## Добавление сообщений, происходящих в каждый момент измерения
-temperature_time_mes = transpose(transpose(temperature_time) + [message_lst])
-
-### сохранение сообщений в файл 'result.xlsx'
-save_results(temperature_time_mes, 'result.xlsx')
-
-
-#%%
-
-#%matplotlib inline
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-#%%     
-
-T = list(np.arange(20, 920, 900/27))
-T = T + [910]*9
-T = T + list(np.arange(910, 560, -350/7))
-T = T + list(np.arange(560, 680, 120/4))
-T = T + [680]*36
-T = T + list(np.arange(680, 900, 220/4))
-T = T + [900]*11
-T = T + list(np.arange(250, 655, 405/21))
-T = T + [655]*22
-t = list(np.arange(0, len(T)))
-
-
-plt.plot(t, T, 'r')
-plt.scatter(*zip(*temperature_time))
-#plt.plot(*zip(*temperature_time))
-plt.show()
+        file_chart = params[1]
+        file_result = params[2]
+        
+        sheet_obj = openpyxl.load_workbook(file_chart).active
+        
+        # Получение cпиcка парметров режимов
+        parameters_list = get_regimes(sheet_obj, reg_cell_name, first_row)
+        
+        # Получение cпиcка темпертур от времени
+        temperature_time = get_temperature_list(sheet_obj, process_cell_name, first_row)
+        
+        # cчитывание параметров режимов в cоответcтвующие переменные
+        regime_parameters = read_regime_pars(parameters_list)   
+        
+        # выполнение контроля    
+        message_lst = regime_control(temperature_time, regime_parameters)
+        
+        ## Добавление сообщений, происходящих в каждый момент измерения
+        temperature_time_mes = transpose(transpose(temperature_time) + [message_lst])
+        
+        ### сохранение сообщений в файл 'result.xlsx'
+        save_results(temperature_time_mes, file_result)
