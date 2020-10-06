@@ -1,7 +1,8 @@
+###
+
 #%%
 
 ## Блок импорта библиотек
-
 from datetime import datetime, date, time
 
 import openpyxl
@@ -628,4 +629,5 @@ if __name__ == '__main__':
 
 ### Команда для отладки
 
-#runfile('C:/Users/room226/GoogleDrive/Science/Ivanov/Step 2/Термодеформационная обработка/Temperature_control_0_2.py', wdir='C:/Users/room226/GoogleDrive/Science/Ivanov/Step 2/Термодеформационная обработка', args='"Пок. 904088, 15Х2НМФА кл.1, 9900.85.70.861 Обечайка корпуса реактора.xlsx" "results.xlsx"')
+#runfile('C:/Users/room226/GoogleDrive/Science/Ivanov/Step 2/Термодеформационная обработка/Temperature_control_0_2.py', wdir='C:/Users/room226/GoogleDrive/Science/Ivanov/Step 2/Термодеформационная обработка',
+#args='"Пок. 904088, 15Х2НМФА кл.1, 9900.85.70.861 Обечайка корпуса реактора.xlsx" "results.xlsx"')
